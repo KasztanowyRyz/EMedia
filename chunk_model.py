@@ -45,7 +45,7 @@ class ChunkModel:
 
         return f"Type:{type}    Length:{length}"
 
-    def writeToFile(self, file):
+    def write_to_file(self, file):
         file.write(self.length_bytes)
         file.write(self.type_bytes)
         file.write(self.data)

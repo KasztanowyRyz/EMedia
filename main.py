@@ -131,16 +131,16 @@ def anonymize_image(image_name, critical_chunks, join=False):
             )
 
             if IHDR != None:
-                IHDR.writeToFile(file)
+                IHDR.write_to_file(file)
 
             if PLTE != None:
-                PLTE.writeToFile(file)
+                PLTE.write_to_file(file)
 
             if IDAT != None:
-                IDAT.writeToFile(file)
+                IDAT.write_to_file(file)
 
             if IEND != None:
-                IEND.writeToFile(file)
+                IEND.write_to_file(file)
         else:
             for chunk in critical_chunks:
                 file.write(chunk.length_bytes)
