@@ -1,17 +1,18 @@
-# This is a sample Python script.
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 import sys
 import struct
 import subprocess
-from multiprocessing import Process
+from multiprocessing import Process, Pipe
 import chardet
 import numpy as np
 import matplotlib
+import zlib
+from chunk_model import ChunkModel, critical_chunks as c_c_dict
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+
+# TODO: Clean up read_png function-> args(chunks) then print their data
+# TODO: Group all similiar functions into different files
 
 
 def spectrum_png(image):
@@ -48,7 +49,107 @@ def show_png(image):
     # print(output.decode("utf-8"))
 
 
-def read_png(image):
+def print_palette(palette):
+    print("Palette:")
+
+    counter = 0
+    for item in list(palette):
+        print(item, end=" ")
+        counter += 1
+        if counter % 3 == 0:
+            print("\n")
+    print("\n")
+
+
+def read_chunks(image, connection):
+    # Open the PNG file in binary mode
+    with open(image, "rb") as file:
+        # Check if the file is a valid PNG file
+        if file.read(8) != b"\x89PNG\r\n\x1a\n":
+            raise ValueError("Not a valid PNG file")
+
+        # Read the chunks of the PNG file
+        chunks = []
+        critical_chunks = []
+        while True:
+            length_bytes = file.read(4)
+            if not length_bytes:
+                break
+            length = int.from_bytes(length_bytes, byteorder="big")
+            type_bytes = file.read(4)
+            data = file.read(length)
+            crc = file.read(4)
+
+            chunk = ChunkModel(length_bytes, type_bytes, data, crc)
+
+            chunks.append(chunk)
+
+            type = c_c_dict.get(type_bytes.hex(), "AC")
+            # Check if chunk is critical
+            if type != "AC":
+                critical_chunks.append(chunk)
+
+        # Return readed chunks
+        data = (chunks, critical_chunks)
+        connection.send(data)
+
+
+def anonymize_image(image_name, critical_chunks, join=False):
+    file_name = image_name[:-4] + "_anon.png"
+
+    with open(file_name, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n")
+        # Optionally join IDAT chunks
+        if join:
+            IHDR = None
+            PLTE = None
+            IDAT = None
+            IEND = None
+            IDAT_length = 0
+            IDAT_data = b""
+
+            for chunk in critical_chunks:
+                if chunk.type_bytes == b"IHDR":
+                    IHDR = ChunkModel(
+                        chunk.length_bytes, chunk.type_bytes, chunk.data, chunk.crc
+                    )
+                if chunk.type_bytes == b"PLTE":
+                    PLTE = ChunkModel(
+                        chunk.length_bytes, chunk.type_bytes, chunk.data, chunk.crc
+                    )
+                if chunk.type_bytes == b"IEND":
+                    IEND = ChunkModel(
+                        chunk.length_bytes, chunk.type_bytes, chunk.data, chunk.crc
+                    )
+                if chunk.type_bytes == b"IDAT":
+                    IDAT_length += int.from_bytes(chunk.length_bytes, byteorder="big")
+                    IDAT_data += chunk.data
+            IDAT_crc = zlib.crc32(b"IDAT" + IDAT_data).to_bytes(4, byteorder="big")
+
+            IDAT = ChunkModel(
+                IDAT_length.to_bytes(4, byteorder="big"), b"IDAT", IDAT_data, IDAT_crc
+            )
+
+            if IHDR != None:
+                IHDR.writeToFile(file)
+
+            if PLTE != None:
+                PLTE.writeToFile(file)
+
+            if IDAT != None:
+                IDAT.writeToFile(file)
+
+            if IEND != None:
+                IEND.writeToFile(file)
+        else:
+            for chunk in critical_chunks:
+                file.write(chunk.length_bytes)
+                file.write(chunk.type_bytes)
+                file.write(chunk.data)
+                file.write(chunk.crc)
+
+
+def read_png(image, connection):
     # Open the PNG file in binary mode
     with open(image, "rb") as file:
         # Check if the file is a valid PNG file
@@ -205,10 +306,11 @@ def read_png(image):
         plte_chunk = next((chunk for chunk in chunks if chunk[0] == b"PLTE"), None)
         if plte_chunk:
             palette = struct.iter_unpack(">BBB", plte_chunk[1])
-            print("Palette:", list(palette))
+
+            print_palette(palette)
         else:
             # sPLT chunk be used for this purpose if colour types 2 and 6 is set
-            plte_chunk = next((chunk for chunk in chunks if chunk[0] == b"sPLTE"), None)
+            plte_chunk = next((chunk for chunk in chunks if chunk[0] == b"sPLT"), None)
             if plte_chunk:
                 palette = struct.iter_unpack(">BBB", plte_chunk[1])
                 print("Palette:", list(palette))
@@ -299,16 +401,37 @@ def read_png(image):
         else:
             print("IEND chunk not found")
 
+        connection.send(chunks)
+
 
 def main():
-    image_process = Process(target=show_png, args=(sys.argv[1],))
-    image_process.start()
-    read_process = Process(target=read_png, args=(sys.argv[1],))
+    conn1, conn2 = Pipe()
+
+    read_process = Process(
+        target=read_chunks,
+        args=(
+            sys.argv[1],
+            conn2,
+        ),
+    )
     read_process.start()
-    plot_process = Process(target=spectrum_png, args=(sys.argv[1],))
-    plot_process.start()
+
+    chunks, critical_chunks = conn1.recv()
+
+    for chunk in critical_chunks:
+        print(chunk)
+
+    anonymize_image(sys.argv[1], critical_chunks, True)
+    # read_chunks(sys.argv[1], 1)
+    # result = result_queue.get(block=True, timeout=5)
+
+    # print(value)
+
+    # image_process = Process(target=show_png, args=(sys.argv[1],))
+    # image_process.start()
+    # plot_process = Process(target=spectrum_png, args=(sys.argv[1],))
+    # plot_process.start()
 
 
-# Press the green button in the gutter to run the script.
 if __name__ == "__main__":
     main()
