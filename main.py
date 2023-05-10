@@ -4,9 +4,11 @@ import subprocess
 from multiprocessing import Process, Pipe
 import chardet
 import numpy as np
+import cv2
 import matplotlib
 import zlib
 from chunk_model import ChunkModel, critical_chunks as c_c_dict
+import os
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -15,38 +17,43 @@ import matplotlib.pyplot as plt
 # TODO: Group all similiar functions into different files
 
 
-def spectrum_png(image):
-    img = plt.imread(image)
-    # Apply Fourier Transform on the image
-    f = np.fft.fft2(img)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = 20 * np.log(np.abs(fshift))
+# To convert an RGB image to grayscale, the function calculates
+# the weighted sum of the R, G, and B color channels, with weights of 0.2989, 0.5870, and 0.1140 respectively.
+# This weighted sum results in a single grayscale value for each pixel in the output image.
 
-    # Plot the magnitude spectrum
-    plt.imshow(magnitude_spectrum, cmap="gray")
-    plt.title("Magnitude Spectrum"), plt.xticks([]), plt.yticks([])
-    plt.show()
-
-    # Apply Inverse Fourier Transform on the frequency domain representation
-    f_ishift = np.fft.ifftshift(fshift)
-    img_back = np.fft.ifft2(f_ishift)
-    img_back = np.abs(img_back)
-
-    # Compare the original and reconstructed image
-    plt.subplot(121), plt.imshow(img, cmap="gray")
-    plt.title("Input Image"), plt.xticks([]), plt.yticks([])
-    plt.subplot(122), plt.imshow(img_back, cmap="gray")
-    plt.title("Reconstructed Image"), plt.xticks([]), plt.yticks([])
-    plt.show()
+# After the conversion, the resulting grayscale image has a single channel,
+# with each pixel representing the brightness value of the corresponding pixel in the original RGB image.
 
 
 def show_png(image):
     img = plt.imread(image)
-    plt.imshow(img)
-    plt.show()
+    # Convert the image to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Compute the 2D Fourier transform of the grayscale image
+    fft_img = np.fft.fft2(gray)
+    # Shift the zero-frequency components to the center of the frequency domain
+    fft_shift = np.fft.fftshift(fft_img)
 
-    # output = subprocess.check_output(["display", image])
-    # print(output.decode("utf-8"))
+    magnitude_spectrum = 20 * np.log(np.abs(fft_shift))
+    phase_spectrum = (np.angle(fft_shift))
+
+    # Plot the spectrum
+    plt.subplot(223), plt.imshow(magnitude_spectrum, cmap='gray')
+    plt.title('Magnitude Spectrum'), plt.xticks([]), plt.yticks([])
+    plt.subplot(224), plt.imshow(phase_spectrum, cmap='gray')
+    plt.title('Phase Spectrum'), plt.xticks([]), plt.yticks([])
+
+    # Apply Inverse Fourier Transform on the frequency domain representation
+    f_ishift = np.fft.ifftshift(fft_shift)
+    img_back = np.fft.ifftn(f_ishift)
+    img_back = np.abs(img_back)
+
+    # Compare the original and reconstructed image
+    plt.subplot(221), plt.imshow(img, cmap='gray')
+    plt.title('Input Image'), plt.xticks([]), plt.yticks([])
+    plt.subplot(222), plt.imshow(img_back, cmap='gray')
+    plt.title('Reconstructed Image'), plt.xticks([]), plt.yticks([])
+    plt.show()
 
 
 def print_palette(palette):
@@ -61,7 +68,7 @@ def print_palette(palette):
     print("\n")
 
 
-def read_chunks(image, connection):
+def read_chunks(image):
     # Open the PNG file in binary mode
     with open(image, "rb") as file:
         # Check if the file is a valid PNG file
@@ -89,13 +96,13 @@ def read_chunks(image, connection):
             if type != "AC":
                 critical_chunks.append(chunk)
 
-        # Return readed chunks
+        # Return read chunks
         data = (chunks, critical_chunks)
-        connection.send(data)
 
 
-def anonymize_image(image_name, critical_chunks, join=False):
+def anonymize_image(image_name):
     file_name = image_name[:-4] + "_anon.png"
+    chunks, critical_chunks = read_chunks(image_name)
 
     with open(file_name, "wb") as file:
         file.write(b"\x89PNG\r\n\x1a\n")
@@ -149,7 +156,7 @@ def anonymize_image(image_name, critical_chunks, join=False):
                 file.write(chunk.crc)
 
 
-def read_png(image, connection):
+def read_png(image):
     # Open the PNG file in binary mode
     with open(image, "rb") as file:
         # Check if the file is a valid PNG file
@@ -303,7 +310,38 @@ def read_png(image, connection):
                 )
 
         # Extract the metadata from the PLTE chunk
-        plte_chunk = next((chunk for chunk in chunks if chunk[0] == b"PLTE"), None)
+        plte_chunk = next((chunk for chunk in chunks if chunk[0] == b'PLTE'), None)
+        if plte_chunk:
+            palette = struct.iter_unpack('>BBB', plte_chunk[1])
+            list_palette = list(palette)
+            
+            num_colors = len(list_palette)
+
+            # Calculate the number of rows and columns needed to display the palette as a square matrix
+            num_rows = int(np.ceil(np.sqrt(num_colors)))
+            num_cols = int(np.ceil(num_colors / num_rows))
+
+            # Create a figure with subplots to display the color palette
+            fig, ax = plt.subplots(num_rows, num_cols, figsize=(8, 8))
+
+            # Loop over each color in the palette and plot a rectangle of that color in its corresponding subplot
+            for i in range(num_rows):
+                for j in range(num_cols):
+                    idx = i * num_cols + j
+                    if idx < num_colors:
+                        color = list_palette[idx]
+                        ax[i, j].imshow(np.full((100, 100, 3), color, dtype=np.uint8))
+                        ax[i, j].axis('off')
+                    else:
+                        # If there are no more colors to display, hide the corresponding subplot
+                        ax[i, j].axis('off')
+            # Display the color palette
+            plt.show()
+
+
+
+            # sPLT chunk be used for this purpose if colour types 2 and 6 is set
+        plte_chunk = next((chunk for chunk in chunks if chunk[0] == b'sPLTE'), None)
         if plte_chunk:
             palette = struct.iter_unpack(">BBB", plte_chunk[1])
 
@@ -356,7 +394,20 @@ def read_png(image, connection):
             try:
                 if keyword == b"XML:com.adobe.xmp":
                     # The XMP data is typically encoded using UTF-8
-                    print("XMP data:", text_data.decode("utf-8"))
+                    xmp_data = text_data.decode('utf-8')
+
+                    # Crop the XMP data
+                    xmp_start = xmp_data.find('<rdf:RDF')
+                    xmp_end = xmp_data.rfind('</rdf:RDF>') + len('</rdf:RDF>')
+                    xmp_data = xmp_data[xmp_start:xmp_end]
+
+                    # Remove the XML declaration and the x:xmpmeta namespace declaration
+                    xmp_data = xmp_data.replace('<?xml version="1.0" encoding="UTF-8"?>', '')
+                    xmp_data = xmp_data.replace('<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 6.0.0">', '')
+
+                    # Print the cropped XMP data
+                    print('XMP data:', xmp_data)
+
                 else:
                     # Attempt to decode the text data using the detected encoding
                     detected_encoding = chardet.detect(text_data)["encoding"]
@@ -401,36 +452,35 @@ def read_png(image, connection):
         else:
             print("IEND chunk not found")
 
-        connection.send(chunks)
 
 
 def main():
-    conn1, conn2 = Pipe()
-
-    read_process = Process(
-        target=read_chunks,
-        args=(
-            sys.argv[1],
-            conn2,
-        ),
-    )
-    read_process.start()
-
-    chunks, critical_chunks = conn1.recv()
-
-    for chunk in critical_chunks:
-        print(chunk)
-
-    anonymize_image(sys.argv[1], critical_chunks, True)
-    # read_chunks(sys.argv[1], 1)
-    # result = result_queue.get(block=True, timeout=5)
-
-    # print(value)
-
-    # image_process = Process(target=show_png, args=(sys.argv[1],))
-    # image_process.start()
-    # plot_process = Process(target=spectrum_png, args=(sys.argv[1],))
-    # plot_process.start()
+    choice = None
+    if (len(sys.argv) != 1):
+        img = sys.argv[1]
+    else: 
+        img = None
+    # os.system('cls' if os.name == 'nt' else 'clear')
+    while(True):
+        print("Menu -- Choose option: \n")
+        print("1. Read metadata \n")
+        print("2. Show image pack (image, FFT, etc.) \n")
+        print("3. Anonymize image \n")
+        print("4. Choose image \n")
+        print("0. Exit \n")
+        choose = input("Your choice: ")
+        if (choose == '1' and img is not None):
+            read_png(img)
+        elif (choose == '2' and img is not None):
+            show_png(img)
+        elif (choose == '3' and img is not None):
+            anonymize_image(img)
+        elif (choose == '4'):
+            img = input("Provide image name/path: ")
+        elif (choose == '0'):
+            exit()
+        else: 
+            print("Not recognized option or no image found\n")
 
 
 if __name__ == "__main__":
