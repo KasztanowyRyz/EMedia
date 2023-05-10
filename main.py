@@ -12,6 +12,8 @@ import os
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
 
 # TODO: Clean up read_png function-> args(chunks) then print their data
 # TODO: Group all similiar functions into different files
@@ -287,10 +289,10 @@ def read_png(image):
         # Extract the metadata from the sBIT chunk
         sbit_chunk = next((chunk for chunk in chunks if chunk[0] == b"sBIT"), None)
         if sbit_chunk:
-            if color_type in (0, 4):
+            if color_type == 0:  # grayscale
                 gray_bits = struct.unpack(">B", sbit_chunk[1])[0]
                 print("Significant bits per channel (gray):", gray_bits)
-            elif color_type in (2, 6):
+            elif color_type == 2:  # truecolor
                 red_bits, green_bits, blue_bits = struct.unpack(">BBB", sbit_chunk[1])
                 print(
                     "Significant bits per channel (RGB):",
@@ -298,16 +300,31 @@ def read_png(image):
                     green_bits,
                     blue_bits,
                 )
-            elif color_type == 3:
-                red_bits, green_bits, blue_bits = struct.unpack(">B", sbit_chunk[1][:3])
-                alpha_bits = struct.unpack(">B", sbit_chunk[1][3:])[0]
+            elif color_type == 3:  # indexed color
+                red_bits, green_bits, blue_bits = struct.unpack(">BBB", sbit_chunk[1])
                 print(
                     "Significant bits per channel (palette):",
                     red_bits,
                     green_bits,
                     blue_bits,
+                )
+            elif color_type == 4:  # grayscale with alpha
+                gray_bits, alpha_bits = struct.unpack(">BB", sbit_chunk[1])
+                print(
+                    "Significant bits per channel (gray with alpha):",
+                    gray_bits,
                     alpha_bits,
                 )
+            elif color_type == 6:  # truecolor with alpha
+                red_bits, green_bits, blue_bits, alpha_bits = struct.unpack(">BBBB", sbit_chunk[1])
+                print(
+                    "Significant bits per channel (RGBA):",
+                    red_bits,
+                    green_bits,
+                    blue_bits,
+                    alpha_bits,
+                )
+
 
         # Extract the metadata from the PLTE chunk
         plte_chunk = next((chunk for chunk in chunks if chunk[0] == b'PLTE'), None)
@@ -451,6 +468,28 @@ def read_png(image):
             print("IEND chunk found")
         else:
             print("IEND chunk not found")
+
+
+        # Extract the metadata from the hIST chunk
+        hist_chunk = next((chunk for chunk in chunks if chunk[0] == b"hIST"), None)
+        if hist_chunk:
+            plte_chunk = next((chunk for chunk in chunks if chunk[0] == b'PLTE'), None)
+            if plte_chunk:
+                num_palette_entries = len(plte_chunk[1]) // 3
+                if len(hist_chunk[1]) != 2 * num_palette_entries:
+                    print("Invalid hIST chunk")
+                    return
+
+                # Extract the histogram counts and plot the histogram
+                counts = struct.unpack(">" + "H" * num_palette_entries, hist_chunk[1])
+                plt.bar(range(num_palette_entries), counts)
+                plt.show()
+            else:
+                print("Cannot read hIST chunk without PLTE chunk")
+
+
+
+
 
 
 
