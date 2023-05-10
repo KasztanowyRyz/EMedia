@@ -97,10 +97,10 @@ def read_chunks(image):
                 critical_chunks.append(chunk)
 
         # Return read chunks
-        data = (chunks, critical_chunks)
+        return(chunks, critical_chunks)
 
 
-def anonymize_image(image_name):
+def anonymize_image(image_name, join):
     file_name = image_name[:-4] + "_anon.png"
     chunks, critical_chunks = read_chunks(image_name)
 
@@ -474,7 +474,7 @@ def main():
         elif (choose == '2' and img is not None):
             show_png(img)
         elif (choose == '3' and img is not None):
-            anonymize_image(img)
+            anonymize_image(img, True)
         elif (choose == '4'):
             img = input("Provide image name/path: ")
         elif (choose == '0'):
