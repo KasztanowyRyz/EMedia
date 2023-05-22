@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 import matplotlib
 import zlib
+import math
 from chunk_model import ChunkModel, critical_chunks as c_c_dict
 import os
 
@@ -357,7 +358,7 @@ def read_png(image):
 
 
 
-            # sPLT chunk be used for this purpose if colour types 2 and 6 is set
+        # sPLT chunk be used for this purpose if colour types 2 and 6 is set
         plte_chunk = next((chunk for chunk in chunks if chunk[0] == b'sPLTE'), None)
         if plte_chunk:
             palette = struct.iter_unpack(">BBB", plte_chunk[1])
@@ -482,13 +483,20 @@ def read_png(image):
 
                 # Extract the histogram counts and plot the histogram
                 counts = struct.unpack(">" + "H" * num_palette_entries, hist_chunk[1])
-                plt.bar(range(num_palette_entries), counts)
+                plt.subplot(211), plt.bar(range(num_palette_entries), counts)
+                plt.title('RGB histogram')
+                grey = []
+                # Calculate the grayscale histogram counts
+                grey_counts = np.zeros(256, dtype=int)
+                for i in range(num_palette_entries):
+                    r, g, b = plte_chunk[1][i*3:i*3+3]
+                    grey_value = int(0.299 * r + 0.587 * g + 0.114 * b)
+                    grey_counts[grey_value] += counts[i]
+                plt.subplot(212), plt.bar(range(256), grey_counts)
+                plt.title('Grayscale histogram')
                 plt.show()
             else:
                 print("Cannot read hIST chunk without PLTE chunk")
-
-
-
 
 
 
