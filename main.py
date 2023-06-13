@@ -10,7 +10,7 @@ import zlib
 import math
 from chunk_model import ChunkModel, critical_chunks as c_c_dict
 import os
-import rsa
+import _rsa
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -27,11 +27,11 @@ def encrypt_image(image_name, IHDR, IDAT, IEND, public_key):
         data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
         IDAT_length = 0
         IDAT_data = b""
-        block_size = rsa.BLOCK_SIZE
+        block_size = _rsa.BLOCK_SIZE
         for i in range(0, data_length, block_size):
             block = IDAT.data[i : i + block_size]
 
-            cipherbytes = rsa.rsa_encrypt(block, public_key)
+            cipherbytes = _rsa.rsa_encrypt(block, public_key)
             IDAT_length += len(cipherbytes)
             IDAT_data += cipherbytes
 
@@ -62,7 +62,7 @@ def decrypt_image(image_name, IHDR, IDAT, IEND, private_key):
             IHDR.write_to_file(file)
 
         data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
-        block_size = rsa.BITS // 8
+        block_size = _rsa.BITS // 8
 
         IDAT_length = 0
         IDAT_data = b""
@@ -70,7 +70,7 @@ def decrypt_image(image_name, IHDR, IDAT, IEND, private_key):
             block = IDAT.data[i : i + block_size]
             # Process the block as desired
             # For example, print the block contents
-            bytes_text = rsa.rsa_decrypt(block, private_key)
+            bytes_text = _rsa.rsa_decrypt(block, private_key)
             IDAT_length += len(bytes_text)
             IDAT_data += bytes_text
 
@@ -122,11 +122,11 @@ def encrypt_decompressed(image_name, IHDR, IDAT, IEND, public_key):
         data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
         IDAT_length = 0
         IDAT_data = b""
-        block_size = rsa.BLOCK_SIZE
+        block_size = _rsa.BLOCK_SIZE
         for i in range(0, data_length, block_size):
             block = IDAT.data[i : i + block_size]
 
-            cipherbytes = rsa.rsa_encrypt(block, public_key)
+            cipherbytes = _rsa.rsa_encrypt(block, public_key)
             IDAT_length += len(cipherbytes)
             IDAT_data += cipherbytes
 
@@ -160,7 +160,7 @@ def decrypt_decompressed(image_name, IHDR, IDAT, IEND, private_key):
             IHDR.write_to_file(file)
 
         data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
-        block_size = rsa.BITS // 8
+        block_size = _rsa.BITS // 8
 
         IDAT_length = 0
         IDAT_data = b""
@@ -168,7 +168,7 @@ def decrypt_decompressed(image_name, IHDR, IDAT, IEND, private_key):
             block = IDAT.data[i : i + block_size]
             # Process the block as desired
             # For example, print the block contents
-            bytes_text = rsa.rsa_decrypt(block, private_key)
+            bytes_text = _rsa.rsa_decrypt(block, private_key)
             IDAT_length += len(bytes_text)
             IDAT_data += bytes_text
 
@@ -244,6 +244,157 @@ def img_info(IHDR, IDAT):
     return IDAT_decompressed
 
 
+def encrypt_image_ctr(image_name, IHDR, IDAT, IEND, public_key):
+    file_name = image_name[:-4] + "_enc_ctr.png"
+
+    with open(file_name, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n")
+
+        data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
+        IDAT_length = 0
+        IDAT_data = b""
+        block_size = _rsa.BLOCK_SIZE
+        counter = 0
+        for i in range(0, data_length, block_size):
+            block = IDAT.data[i : i + block_size]
+
+            cipherbytes = _rsa.rsa_encrypt_ctr(block, public_key, counter)
+            IDAT_length += len(cipherbytes)
+            IDAT_data += cipherbytes
+            counter += 1
+
+        IDAT_crc = zlib.crc32(b"IDAT" + IDAT_data).to_bytes(4, byteorder="big")
+
+        newIDAT = ChunkModel(
+            IDAT_length.to_bytes(4, byteorder="big"), b"IDAT", IDAT_data, IDAT_crc
+        )
+
+        if IHDR != None:
+            IHDR.write_to_file(file)
+
+        if newIDAT != None:
+            newIDAT.write_to_file(file)
+
+        if IEND != None:
+            IEND.write_to_file(file)
+    return newIDAT
+
+
+def decrypt_image_ctr(image_name, IHDR, IDAT, IEND, private_key):
+    file_name = image_name[:-4] + "_dec_ctr.png"
+
+    with open(file_name, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n")
+
+        if IHDR != None:
+            IHDR.write_to_file(file)
+
+        data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
+        block_size = _rsa.BITS // 8
+
+        IDAT_length = 0
+        IDAT_data = b""
+        counter = 0
+        for i in range(0, data_length, block_size):
+            block = IDAT.data[i : i + block_size]
+            # Process the block as desired
+            # For example, print the block contents
+            bytes_text = _rsa.rsa_encrypt_ctr(block, private_key, counter)
+            IDAT_length += len(bytes_text)
+            IDAT_data += bytes_text
+            counter += 1
+
+        IDAT_crc = zlib.crc32(b"IDAT" + IDAT_data).to_bytes(4, byteorder="big")
+
+        newIDAT = ChunkModel(
+            IDAT_length.to_bytes(4, byteorder="big"), b"IDAT", IDAT_data, IDAT_crc
+        )
+
+        if newIDAT != None:
+            newIDAT.write_to_file(file)
+
+        if IEND != None:
+            IEND.write_to_file(file)
+
+
+def encrypt_decompressed_ctr(image_name, IHDR, IDAT, IEND, public_key):
+    file_name = image_name[:-4] + "_enc_dc_ctr.png"
+
+    IDAT = decompress(IDAT)
+
+    with open(file_name, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n")
+
+        data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
+        IDAT_length = 0
+        IDAT_data = b""
+        block_size = _rsa.BLOCK_SIZE
+        counter = 0
+        for i in range(0, data_length, block_size):
+            block = IDAT.data[i : i + block_size]
+
+            cipherbytes = _rsa.rsa_encrypt_ctr(block, public_key, counter)
+            IDAT_length += len(cipherbytes)
+            IDAT_data += cipherbytes
+            counter += 1
+
+        IDAT_crc = zlib.crc32(b"IDAT" + IDAT_data).to_bytes(4, byteorder="big")
+
+        newIDAT = ChunkModel(
+            IDAT_length.to_bytes(4, byteorder="big"), b"IDAT", IDAT_data, IDAT_crc
+        )
+
+        if IHDR != None:
+            IHDR.write_to_file(file)
+
+        if newIDAT != None:
+            newIDAT = compress(newIDAT)
+            newIDAT.write_to_file(file)
+
+        if IEND != None:
+            IEND.write_to_file(file)
+    return newIDAT
+
+
+def decrypt_decompressed_ctr(image_name, IHDR, IDAT, IEND, public_key):
+    file_name = image_name[:-4] + "_dec_dc_ctr.png"
+
+    IDAT = decompress(IDAT)
+
+    with open(file_name, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n")
+
+        if IHDR != None:
+            IHDR.write_to_file(file)
+
+        data_length = int.from_bytes(IDAT.length_bytes, byteorder="big")
+        block_size = _rsa.BITS // 8
+
+        IDAT_length = 0
+        IDAT_data = b""
+        counter = 0
+        for i in range(0, data_length, block_size):
+            block = IDAT.data[i : i + block_size]
+
+            cipherbytes = _rsa.rsa_encrypt_ctr(block, public_key, counter)
+            IDAT_length += len(cipherbytes)
+            IDAT_data += cipherbytes
+            counter += 1
+
+        IDAT_crc = zlib.crc32(b"IDAT" + IDAT_data).to_bytes(4, byteorder="big")
+
+        newIDAT = ChunkModel(
+            IDAT_length.to_bytes(4, byteorder="big"), b"IDAT", IDAT_data, IDAT_crc
+        )
+
+        if newIDAT != None:
+            newIDAT = compress(newIDAT)
+            newIDAT.write_to_file(file)
+
+        if IEND != None:
+            IEND.write_to_file(file)
+
+
 def main():
     choice = None
     if len(sys.argv) != 1:
@@ -255,9 +406,9 @@ def main():
     IHDR, PLTE, IDAT, IEND = divide_image(critical_chunks)
     img_info(IHDR, IDAT)
 
-    private_key, public_key = rsa.generate_rsa_key_pair()
-    rsa.write_keys_to_file(private_key, public_key, "./RSA/_keys.txt")
-    private_key, public_key = rsa.read_keys_from_file("./RSA/_keys.txt")
+    private_key, public_key = _rsa.generate_rsa_key_pair()
+    _rsa.write_keys_to_file(private_key, public_key, "./RSA/_keys.txt")
+    private_key, public_key = _rsa.read_keys_from_file("./RSA/_keys.txt")
 
     newIDAT = encrypt_image(img, IHDR, IDAT, IEND, public_key)
     print("decrypt")
